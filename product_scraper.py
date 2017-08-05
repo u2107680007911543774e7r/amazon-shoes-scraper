@@ -2,6 +2,7 @@
 import requests
 from bs4 import BeautifulSoup
 from proxies_scraper import get_proxies
+import re
 import csv
 import urllib
 import html5lib
@@ -10,7 +11,10 @@ from distutils.filelist import findall
 from random import choice, uniform
 from time import sleep
 from itertools import product
+from htmlmin.minify import html_minify
+from django.core.management import color
 
+URL = 'https://www.amazon.com/s/ref=sr_hi_6?rh=n%3A7141123011%2Cn%3A7147441011%2Cn%3A679255011%2Cn%3A6127770011%2Cn%3A679286011%2Cp_6%3AATVPDKIKX0DER%7CAH1YFAUS3NHX2%7CA38MYE29B8LFRT%7CA2I0YKRFYX9813%7CAG670YE9WDQRF%7CA1LEM297LNF1FK%7CA7QKSDTF5TXF5%7CA7ULJO7NAWM0L%7CA2BMBHD2OU3XDU%7CAU8KF031TC39C%7CA3SNLLVFZ6ABAC%7CA3VX72MEBB21JI%7CAUN61RNUNKNVG%7CA1BNXE6U3W2NOH%7CAM3NWFGAU67D%7CA2WOPAGVJGO3RL%7CA3NWHXTQ4EBCZS%7CA1UG884EF99PVQ%7CA15MDCTZU8FRDU%7CA2XDG44YY9CCCX%7CA5592GM03C9YR%7CA1YT150G3ARUNS%7CAL551XTSRGEN3&bbn=679286011&ie=UTF8&qid=1501746466'
 titles = ['seller',
             'feed_product_type',
             'item_sku',
@@ -111,9 +115,9 @@ def get_html(start_url, useragent=useragentr, proxy=proxys):
     try:
         r = requests.get(start_url, headers = useragentr, proxies = proxys, timeout = 10)
     except (requests.exceptions.Timeout, requests.exceptions.RequestException) as e:
-        return
-        
-    return r.text
+        get_html(start_url, useragent, proxy)
+    minified_html = html_minify(r.text)    
+    return minified_html
 def get_urls_dict():
     with open('Amazon_URLS.csv') as infile:
         reader = csv.DictReader(infile)
@@ -246,24 +250,30 @@ def get_product_info(url, product_link):
             'size_name':'',
             'collection_name':'',
             'sport_type':''}
+    
     soup = BeautifulSoup(get_html(product_link), 'html5lib')
+    empty = []
     
     try:
         brand = soup.find('a', id = 'brand').get('href').split('/')[1]
     except:
         brand = ' '
     with open('accepted_brand.csv', 'r') as f:
+        list_ab = []
         reader = csv.reader(f)
         accepted_brands = list(reader)
-        list_ab = ''.join(str(x) for x in accepted_brands)
+        for row in accepted_brands:
+            list_ab.append(row[0])
     with open('Restricted-Brands.csv', 'r') as f:
+        list_rb = []
         reader = csv.reader(f)
         restricted_brands = list(reader)
-        list_rb = ''.join(str(x) for x in restricted_brands)
+        for row in restricted_brands:
+            list_rb.append(row[0])
     if brand in list_ab and brand not in list_rb:
         data['brand_name'] = brand
     else: 
-        return
+        return empty
     
     try:
         name = soup.find('span', id = 'productTitle').text.strip()
@@ -271,7 +281,7 @@ def get_product_info(url, product_link):
         name= ''
     
     try:
-        ASIN = get_prod_descr(product_link)[6][0]
+        ASIN = get_ASIN(product_link)
     except:
         ASIN = ''
     with open('Restricted-Asins.csv', 'r') as f:
@@ -281,7 +291,7 @@ def get_product_info(url, product_link):
     if ASIN not in list_ra:
         data['external_product_id'] = ASIN
     else:
-        return
+        return empty
     bullets = []
     try:
         for i in soup.find('ul', class_ = 'a-unordered-list a-vertical a-spacing-none').findAll('li'):
@@ -322,23 +332,22 @@ def get_product_info(url, product_link):
     
     return list(data.values())
 def get_ASIN(product_link):
-    asin = []
     soup = BeautifulSoup(get_html(product_link), 'html5lib')
-    try:
-        for i in soup.find('div', id ='detailBullets_feature_div').findAll('span', class_ = 'a-list-item'):
-            for d in i.findAll('span'):
-                asin.append(d.text.strip())
-    except:
-        return
-    return asin[5]
+    for i in soup.findAll('span', class_='a-text-bold'):
+        if 'ASIN' in i.text.strip():
+            asin = i.find_next_sibling('span').text
+        else:
+            continue
+    return asin
+    
 
 def get_variations(url, product_link):
-    var_page = 'https://www.amazon.com/gp/offer-listing/'+get_ASIN(product_link)
+    var_page = 'https://www.amazon.com/gp/offer-listing/'+get_ASIN(product_link) + '?ie=UTF8&condition=new'
+    var_links = get_variations_links(url, product_link)
     soup = BeautifulSoup(get_html(var_page), 'html5lib')
     variations = []
     
-    for i in soup.findAll('h1'):
-        new_name = i.text.strip()
+    
     sellers = []
     for i in soup.findAll("h3", class_ ='a-spacing-none olpSellerName'):
         try:
@@ -360,14 +369,39 @@ def get_variations(url, product_link):
                 product = get_product_info(url, product_link)
             except:
                 continue
+            
+        soup2 = BeautifulSoup(get_html(var_links[i]), 'html5lib')    
+        for k in soup2.findAll('h1', class_ = 'a-size-large a-spacing-none'):
+            if k != None:
+                new_name = k.text.strip()
+                pass
+            else:
+                new_name = ''
+        
+        color_size = []
+        for j in soup2.findAll('span', class_ = 'a-dropdown-prompt'):
+            if j != None:
+                color_size.append(j.text.strip())
+                pass
+            else:
+                color_size = ''
+            
         product[0] = sellers[i]
         product[7] = new_name
         product[13] = standard_prices[i]
         product[51] = 'child'
+        product[84] = color_size[1]
+        product[85] = color_size[0]
         variations.append(product)
         
     return variations
-    
+def get_variations_links(url, product_link):
+    var_page = 'https://www.amazon.com/gp/offer-listing/'+get_ASIN(product_link) + '?ie=UTF8&condition=new'
+    soup = BeautifulSoup(get_html(var_page), 'html5lib')
+    var_links = []
+    for i in soup.findAll('a', class_ = 'a-link-normal', attrs={'href': re.compile('/gp/offer-listing/')}):
+        var_links.append('https://www.amazon.com' + i.get('href'))
+    return var_links    
 def get_prod_descr(product_link):
     description = []
     soup = BeautifulSoup(get_html(product_link), 'html5lib')
@@ -409,27 +443,41 @@ def get_product_links_single_page(page_url):
             for item in links:
                 writer.writerow([item])
     return links
-def make_all(start_url):
-    product_links = get_product_links(start_url)
-#     for k in range(len(product_links)):
-#         product = get_product_info(start_url, product_links[k])
-#         variations = get_variations(start_url, product_links[k])
-#         print(product)
-#         write_to_csv(product)
-#         for item in variations:
-#             print(item)
-#             write_to_csv(item)
-    
+def make_all(product_link):
+    #product_links = get_product_links(start_url)
+    product = get_product_info(URL, product_link)
+    variations = get_variations(URL, product_link)
+    print(product)
+    if product != []:
+        write_to_csv(product)
+    else:
+        pass
+    for item in variations:
+        write_to_csv(item)
+            
+def read_product_links():
+    with open('1.csv', 'r') as f:
+        product_links = []
+        reader = csv.reader(f)
+        l = list(reader)
+        for row in l[0::2]:
+            product_links.append(row[0])
+    return product_links
+
 def main():
-    url = 'https://www.amazon.com/s/ref=sr_hi_6?rh=n%3A7141123011%2Cn%3A7147441011%2Cn%3A679255011%2Cn%3A6127770011%2Cn%3A679286011%2Cp_6%3AATVPDKIKX0DER%7CAH1YFAUS3NHX2%7CA38MYE29B8LFRT%7CA2I0YKRFYX9813%7CAG670YE9WDQRF%7CA1LEM297LNF1FK%7CA7QKSDTF5TXF5%7CA7ULJO7NAWM0L%7CA2BMBHD2OU3XDU%7CAU8KF031TC39C%7CA3SNLLVFZ6ABAC%7CA3VX72MEBB21JI%7CAUN61RNUNKNVG%7CA1BNXE6U3W2NOH%7CAM3NWFGAU67D%7CA2WOPAGVJGO3RL%7CA3NWHXTQ4EBCZS%7CA1UG884EF99PVQ%7CA15MDCTZU8FRDU%7CA2XDG44YY9CCCX%7CA5592GM03C9YR%7CA1YT150G3ARUNS%7CAL551XTSRGEN3&bbn=679286011&ie=UTF8&qid=1501746466'
+    
     #get_variations(category_link, product_link)
 #     write_to_csv(titles)
 #     with Pool(3) as p:
 #         p.map(make_all, list(get_urls_dict().keys()))
-#     for i in range(1):
-#         make_all(list(get_urls_dict().keys())[i])
-    with Pool(10) as p:
-        p.map(get_product_links_single_page, generate_all_pages(url))
+
+    #Pool(6).map(get_product_links_single_page, generate_all_pages(URL))
+#     product_links = read_product_links()
+#     Pool(3).map(make_all, product_links)
+#     for i in range(12):
+#         make_all(product_links[i])
+    make_all('https://www.amazon.com/Saucony-Jazz-Sneaker-Toddler-Periwinkle/dp/B00ZXQV2TY/ref=sr_1_1?s=apparel&ie=UTF8&qid=1501876479&sr=8-1&keywords=Saucony+Jazz+Hook+%26+Loop+Sneaker+%28Toddler%2FLittle+Kid%29')
+    
     
 if __name__ == '__main__':
     main()
