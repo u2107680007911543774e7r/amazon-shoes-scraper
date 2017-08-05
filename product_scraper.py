@@ -300,6 +300,16 @@ def get_product_info(url, product_link):
     try:desc = soup.find('p').text.strip()
     except: desc = ' '  
     
+    with open('Restricted-Keywords.csv', 'r') as f:
+        restricted_kw = []
+        reader = csv.reader(f)
+        l = list(reader)
+        for row in l:
+            restricted_kw.append(row[0]) 
+    for rkw in restricted_kw:
+        if rkw in name:
+            return empty
+           
     imgs = []
     for i in soup.findAll('span', class_ = 'a-button-text'):
         a = i.find('img')
@@ -357,6 +367,7 @@ def get_variations(url, product_link):
                 sellers.append(i.find('a').text.strip())
         except:
             sellers.append('Amazon')
+    
     standard_prices = []
     for i in soup.findAll('span', class_ = 'a-size-large a-color-price olpOfferPrice a-text-bold'):
         standard_prices.append(i.text.strip())
@@ -370,7 +381,8 @@ def get_variations(url, product_link):
             except:
                 continue
             
-        soup2 = BeautifulSoup(get_html(var_links[i]), 'html5lib')    
+        soup2 = BeautifulSoup(get_html(var_links[i]), 'html5lib')
+        new_ASIN = var_links[i].split('offer-listing/')[1].split('/')[0]    
         for k in soup2.findAll('h1', class_ = 'a-size-large a-spacing-none'):
             if k != None:
                 new_name = k.text.strip()
@@ -385,14 +397,36 @@ def get_variations(url, product_link):
                 pass
             else:
                 color_size = ''
-            
-        product[0] = sellers[i]
-        product[7] = new_name
-        product[13] = standard_prices[i]
-        product[51] = 'child'
-        product[84] = color_size[1]
-        product[85] = color_size[0]
-        variations.append(product)
+        new_imgs = []
+        for n in soup2.findAll('a', id = 'olpDetailPageLink'):
+            if n != None:
+                prod_page = n.get('href')
+                soup3 = BeautifulSoup(get_html(prod_page), 'html5lib')
+                for y in soup3.findAll('span', class_ = 'a-button-text'):
+                    a = y.find('img')
+                    if a != None:
+                        new_imgs.append(a['src'])
+        
+        with open('accepted_seller.csv', 'r') as f:
+            reader = csv.reader(f)
+            accepted_sellers = list(reader)
+            list_as = ''.join(str(x) for x in accepted_sellers)
+        if sellers[i] in list_as:    
+            product[0] = sellers[i]
+            product[2] = 'LYS'+new_ASIN+'-'+get_code(url)
+            product[3] = new_ASIN
+            product[7] = new_name
+            product[13] = standard_prices[i]
+            product[46] = new_imgs[0]
+            product[47] = new_imgs[1]
+            product[48] = new_imgs[2]
+            product[49] = new_imgs[3]
+            product[51] = 'child'
+            product[84] = color_size[1]
+            product[85] = color_size[0]
+            variations.append(product)
+        else:
+            product = []
         
     return variations
 def get_variations_links(url, product_link):
@@ -419,7 +453,7 @@ def get_prod_descr(product_link):
     return description
 
 def write_to_csv(data):
-    with open('test_amazon.csv', 'a') as f:
+    with open('amazon_test.csv', 'a') as f:
         writer = csv.writer(f)
         writer.writerow(data)
 def generate_all_pages(url):
@@ -443,6 +477,11 @@ def get_product_links_single_page(page_url):
             for item in links:
                 writer.writerow([item])
     return links
+def write_titles():
+    with open('amazon_test.csv', 'w') as f:
+        writer = csv.writer(f)
+        writer.writerow(titles)
+        
 def make_all(product_link):
     #product_links = get_product_links(start_url)
     product = get_product_info(URL, product_link)
@@ -453,7 +492,11 @@ def make_all(product_link):
     else:
         pass
     for item in variations:
-        write_to_csv(item)
+        if product != []:
+            write_to_csv(item)
+        else:
+            pass
+        
             
 def read_product_links():
     with open('1.csv', 'r') as f:
@@ -466,16 +509,7 @@ def read_product_links():
 
 def main():
     
-    #get_variations(category_link, product_link)
-#     write_to_csv(titles)
-#     with Pool(3) as p:
-#         p.map(make_all, list(get_urls_dict().keys()))
-
-    #Pool(6).map(get_product_links_single_page, generate_all_pages(URL))
-#     product_links = read_product_links()
-#     Pool(3).map(make_all, product_links)
-#     for i in range(12):
-#         make_all(product_links[i])
+    write_titles()
     make_all('https://www.amazon.com/Saucony-Jazz-Sneaker-Toddler-Periwinkle/dp/B00ZXQV2TY/ref=sr_1_1?s=apparel&ie=UTF8&qid=1501876479&sr=8-1&keywords=Saucony+Jazz+Hook+%26+Loop+Sneaker+%28Toddler%2FLittle+Kid%29')
     
     
