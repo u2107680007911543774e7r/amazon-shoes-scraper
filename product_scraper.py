@@ -1,20 +1,19 @@
 # -*- coding: utf-8 -*-
 import requests
 from bs4 import BeautifulSoup
-from proxies_scraper import get_proxies
+from proxies_scraper import get_proxies, get_user_agents
 import re
 import csv
 import urllib
 import html5lib
 from multiprocessing import Pool
-from distutils.filelist import findall
+import random
 from random import choice, uniform
 from time import sleep
 from itertools import product
 from htmlmin.minify import html_minify
-from django.core.management import color
 
-URL = 'https://www.amazon.com/s/ref=sr_hi_6?rh=n%3A7141123011%2Cn%3A7147441011%2Cn%3A679255011%2Cn%3A6127770011%2Cn%3A679286011%2Cp_6%3AATVPDKIKX0DER%7CAH1YFAUS3NHX2%7CA38MYE29B8LFRT%7CA2I0YKRFYX9813%7CAG670YE9WDQRF%7CA1LEM297LNF1FK%7CA7QKSDTF5TXF5%7CA7ULJO7NAWM0L%7CA2BMBHD2OU3XDU%7CAU8KF031TC39C%7CA3SNLLVFZ6ABAC%7CA3VX72MEBB21JI%7CAUN61RNUNKNVG%7CA1BNXE6U3W2NOH%7CAM3NWFGAU67D%7CA2WOPAGVJGO3RL%7CA3NWHXTQ4EBCZS%7CA1UG884EF99PVQ%7CA15MDCTZU8FRDU%7CA2XDG44YY9CCCX%7CA5592GM03C9YR%7CA1YT150G3ARUNS%7CAL551XTSRGEN3&bbn=679286011&ie=UTF8&qid=1501746466'
+START_URL = 'https://www.amazon.com/s/ref=sr_hi_6?rh=n%3A7141123011%2Cn%3A7147441011%2Cn%3A679255011%2Cn%3A6127770011%2Cn%3A679286011%2Cp_6%3AATVPDKIKX0DER%7CAH1YFAUS3NHX2%7CA38MYE29B8LFRT%7CA2I0YKRFYX9813%7CAG670YE9WDQRF%7CA1LEM297LNF1FK%7CA7QKSDTF5TXF5%7CA7ULJO7NAWM0L%7CA2BMBHD2OU3XDU%7CAU8KF031TC39C%7CA3SNLLVFZ6ABAC%7CA3VX72MEBB21JI%7CAUN61RNUNKNVG%7CA1BNXE6U3W2NOH%7CAM3NWFGAU67D%7CA2WOPAGVJGO3RL%7CA3NWHXTQ4EBCZS%7CA1UG884EF99PVQ%7CA15MDCTZU8FRDU%7CA2XDG44YY9CCCX%7CA5592GM03C9YR%7CA1YT150G3ARUNS%7CAL551XTSRGEN3&bbn=679286011&ie=UTF8&qid=1501746466'
 titles = ['seller',
             'feed_product_type',
             'item_sku',
@@ -104,18 +103,24 @@ titles = ['seller',
             'collection_name',
             'sport_type']
 
-useragents = open('useragents.txt').read().split('\n')
-proxies = get_proxies()
-for i in range(10):
-    proxys = {'http':'http://'+choice(proxies)}
-    useragentr = {'User-Agent': choice(useragents[:20])}
-    
-def get_html(start_url, useragent=useragentr, proxy=proxys):
-    sleep(uniform(0,1))
+cookies = {
+    'x-wl-uid': '1p78FbWDfDvpOPRChBflAIY22XgRYRgo8jF5jx5UhN0Kl4QyJlXzgPkmiQ/C1FM/Y6A4emX2iAzA=',
+    'session-token': '8jEybBrXLHwFM69qsRHtuFfwakMvvuNpQ3dBAvm59bt2sroF/9Kd5ceVgN0OVUN8A2rAwyTuSRa3FdolgE7rn6KiZhhI7SvyUIa3jjq4KFQ7DBZ4ndDxfL+w3HyeTk3F9weQcVgi33enW/RrMG+hPvAfpE3Q2ZJozwazOCrqdYe66P64/TebtPLeEI/ht75M',
+    's_nr': '1501927502925-New',
+    's_vnum': '1933927502926%26vn%3D1',
+    's_dslv': '1501927502926',
+    'ubid-main': '135-0538073-9344815',
+    'session-id-time': '2082787201l',
+    'session-id': '147-4785820-5626815',
+}
+def get_html(start_url):
+    useragents = get_user_agents()
+    proxies = get_proxies()
+    sleep(uniform(6, 10))
     try:
-        r = requests.get(start_url, headers = useragentr, proxies = proxys, timeout = 10)
+        r = requests.get(start_url, headers= {'User-Agent': random.choice(useragents)}, proxies= {'http':'http://' + random.choice(proxies)}, cookies = cookies, timeout=10)
     except (requests.exceptions.Timeout, requests.exceptions.RequestException) as e:
-        get_html(start_url, useragent, proxy)
+        return None
     minified_html = html_minify(r.text)    
     return minified_html
 def get_urls_dict():
@@ -148,17 +153,29 @@ def get_code(url):
     return codes.get(category)
     
 def get_number_of_pages(start_url):
-    soup = BeautifulSoup(get_html(start_url),'html5lib')
-    for i in soup.findAll('span', class_ = 'pagnDisabled'):
+    soup = BeautifulSoup(get_html(start_url), 'html5lib')
+    for i in soup.findAll('span', class_='pagnDisabled'):
         pages = i.text.strip()
     return int(pages)
 
-def get_product_links(start_url):
+def get_product_links_multi(start_url):
+    
+    page_links = generate_all_pages(start_url)
+    with Pool(4) as p:
+        p.map(get_product_links_single, page_links)
+def get_product_links_single(page_url):
     links = []
-    for i in generate_all_pages(start_url):
-        soup = BeautifulSoup(get_html(i), 'html5lib')
-        for k in soup.findAll('div', class_ = 'a-row a-gesture a-gesture-horizontal'):
-            links.append(k.find('a', class_ = 'a-link-normal a-text-normal').get('href'))
+    with open('1.csv', 'a') as f:
+        writer = csv.writer(f)
+        html = get_html(page_url)
+        if  html != None:
+            soup = BeautifulSoup(html, 'html5lib')
+            for k in soup.findAll('div', class_='a-row a-gesture a-gesture-horizontal'):
+                item = k.find('a', class_='a-link-normal a-text-normal').get('href')
+                links.append(item)
+                writer.writerow([item])
+        else:
+            pass
     return links
 
 def get_product_info(url, product_link):
@@ -254,36 +271,36 @@ def get_product_info(url, product_link):
     soup = BeautifulSoup(get_html(product_link), 'html5lib')
     empty = []
     
-    try:
-        brand = soup.find('a', id = 'brand').get('href').split('/')[1]
-    except:
-        brand = ' '
+    
+    try: brand = soup.find('a', id='brand').get('href').split('/')[1]
+    except: brand = 'cant get brand'
     with open('accepted_brand.csv', 'r') as f:
         list_ab = []
         reader = csv.reader(f)
         accepted_brands = list(reader)
         for row in accepted_brands:
             list_ab.append(row[0])
-    with open('Restricted-Brands.csv', 'r') as f:
-        list_rb = []
-        reader = csv.reader(f)
-        restricted_brands = list(reader)
-        for row in restricted_brands:
-            list_rb.append(row[0])
-    if brand in list_ab and brand not in list_rb:
-        data['brand_name'] = brand
-    else: 
+    
+    try: name = soup.find('span', id='productTitle').text.strip()
+    except: name = 'cant get name'
+    for b in list_ab:
+        if b.lower() in name.lower():
+            data['brand_name'] = brand
+            break
+        else: 
+            continue
+    if data['brand_name'] == '':
         return empty
     
+    ASIN = 'cant get'   
     try:
-        name = soup.find('span', id = 'productTitle').text.strip()
-    except: 
-        name= ''
-    
-    try:
-        ASIN = get_ASIN(product_link)
+        for i in soup.findAll('span', class_='a-text-bold'):
+            if 'ASIN' in i.text.strip():
+                ASIN = i.find_next_sibling('span').text
+                break
     except:
-        ASIN = ''
+        pass
+        
     with open('Restricted-Asins.csv', 'r') as f:
         reader = csv.reader(f)
         restricted_asins = list(reader)
@@ -292,26 +309,33 @@ def get_product_info(url, product_link):
         data['external_product_id'] = ASIN
     else:
         return empty
+    
+#     with open('Restricted-Keywords.csv', 'r') as f:
+#         restricted_kw = []
+#         reader = csv.reader(f)
+#         l = list(reader)
+#         for row in l:
+#             restricted_kw.append(row[0]) 
+                
     bullets = []
     try:
-        for i in soup.find('ul', class_ = 'a-unordered-list a-vertical a-spacing-none').findAll('li'):
-            bullets.append(i.text.strip())
+        for i in soup.find('ul', class_='a-unordered-list a-vertical a-spacing-none').findAll('li'):
+            bullet = i.text.strip()
+            bullets.append(bullet)              
     except: bullets = []
     try:desc = soup.find('p').text.strip()
     except: desc = ' '  
     
-    with open('Restricted-Keywords.csv', 'r') as f:
-        restricted_kw = []
-        reader = csv.reader(f)
-        l = list(reader)
-        for row in l:
-            restricted_kw.append(row[0]) 
-    for rkw in restricted_kw:
-        if rkw in name:
-            return empty
-           
+    
+#     for rkw in restricted_kw:
+#         if rkw.lower() in name.lower() or rkw.lower() in desc.lower():
+#             return empty
+#         else:
+#             for i in bullets:
+#                 if rkw.lower() in bullet[i]:
+#                     return empty
     imgs = []
-    for i in soup.findAll('span', class_ = 'a-button-text'):
+    for i in soup.findAll('span', class_='a-button-text'):
         a = i.find('img')
         if a != None:
             imgs.append(a['src'])
@@ -321,8 +345,8 @@ def get_product_info(url, product_link):
         department_name = 'Women'
     
     data['item_name'] = name
-    data['part_number'] = 'LYS'+ ASIN + '-' +get_code(url)
-    data['item_sku'] = 'LYS'+ ASIN + '-'+ get_code(url)
+    data['part_number'] = 'LYS' + ASIN + '-' + get_code(url)
+    data['item_sku'] = 'LYS' + ASIN + '-' + get_code(url)
     data['external_product_id'] = ASIN
     data['department_name'] = department_name
     data['lifestyle1'] = 'Casual'
@@ -332,47 +356,49 @@ def get_product_info(url, product_link):
     data['product_description'] = desc
     data['manufacturer'] = brand
     data['generic_keywords'] = name
-    data['main_image_url'] = imgs[0]
-    data['other_image_url1'] = imgs[1]
-    data['other_image_url2'] = imgs[2]
-    data['other_image_url3'] = imgs[3]
-    data['bullet_point1'] = bullets[0]
-    data['bullet_point2'] = bullets[1]
-    data['bullet_point3'] = bullets[2]
+    itimg = iter(imgs)
+    itbul = iter(bullets)
+    data['main_image_url'] = next(itimg, '')
+    data['other_image_url1'] = next(itimg, '')
+    data['other_image_url2'] = next(itimg, '')
+    data['other_image_url3'] = next(itimg, '')
+    data['bullet_point1'] = next(itbul, '')
+    data['bullet_point2'] = next(itbul, '')
+    data['bullet_point3'] = next(itbul, '')
     
     return list(data.values())
-def get_ASIN(product_link):
-    soup = BeautifulSoup(get_html(product_link), 'html5lib')
-    for i in soup.findAll('span', class_='a-text-bold'):
-        if 'ASIN' in i.text.strip():
-            asin = i.find_next_sibling('span').text
-        else:
-            continue
-    return asin
-    
 
 def get_variations(url, product_link):
-    var_page = 'https://www.amazon.com/gp/offer-listing/'+get_ASIN(product_link) + '?ie=UTF8&condition=new'
-    var_links = get_variations_links(url, product_link)
-    soup = BeautifulSoup(get_html(var_page), 'html5lib')
-    variations = []
     
+    var_links = []
+    
+    variations = []
+    soup2 = BeautifulSoup(get_html(product_link), 'html5lib')
+    ASIN = 'cant get'
+    try:
+        for i in soup2.findAll('span', class_='a-text-bold'):
+            if 'ASIN' in i.text.strip():
+                ASIN = i.find_next_sibling('span').text
+                break
+    except:
+        return variations
+
+    var_page = 'https://www.amazon.com/gp/offer-listing/' + ASIN + '?ie=UTF8&condition=new'
+    soup = BeautifulSoup(get_html(var_page), 'html5lib')
+    print(soup)
+    for i in soup.findAll('a', class_='a-link-normal', attrs={'href': re.compile('/gp/offer-listing/')}):
+        var_links.append('https://www.amazon.com' + i.get('href'))
     
     sellers = []
-    for i in soup.findAll("h3", class_ ='a-spacing-none olpSellerName'):
+    for k in soup.findAll("h3", class_='a-spacing-none olpSellerName'):
         try:
-            if i.find('a').text.strip() == '' or i.find('a').text.strip() == None:
-                sellers.append('Amazon')
-            else:
-                sellers.append(i.find('a').text.strip())
+            sellers.append(k.find('a').text.strip())
         except:
             sellers.append('Amazon')
-    
     standard_prices = []
-    for i in soup.findAll('span', class_ = 'a-size-large a-color-price olpOfferPrice a-text-bold'):
+    for i in soup.findAll('span', class_='a-size-large a-color-price olpOfferPrice a-text-bold'):
         standard_prices.append(i.text.strip())
     
-      
     for i in range(0, len(sellers)):
         product = get_product_info(url, product_link) 
         if product == None:
@@ -417,25 +443,21 @@ def get_variations(url, product_link):
             product[3] = new_ASIN
             product[7] = new_name
             product[13] = standard_prices[i]
-            product[46] = new_imgs[0]
-            product[47] = new_imgs[1]
-            product[48] = new_imgs[2]
-            product[49] = new_imgs[3]
+            im = iter(new_imgs)
+            product[46] = next(im, '')
+            product[47] = next(im, '')
+            product[48] = next(im, '')
+            product[49] = next(im, '')
             product[51] = 'child'
-            product[84] = color_size[1]
-            product[85] = color_size[0]
+            cs = iter(color_size)
+            product[85] = next(cs, '')
+            product[84] = next(cs, '')
             variations.append(product)
         else:
             product = []
         
     return variations
-def get_variations_links(url, product_link):
-    var_page = 'https://www.amazon.com/gp/offer-listing/'+get_ASIN(product_link) + '?ie=UTF8&condition=new'
-    soup = BeautifulSoup(get_html(var_page), 'html5lib')
-    var_links = []
-    for i in soup.findAll('a', class_ = 'a-link-normal', attrs={'href': re.compile('/gp/offer-listing/')}):
-        var_links.append('https://www.amazon.com' + i.get('href'))
-    return var_links    
+
 def get_prod_descr(product_link):
     description = []
     soup = BeautifulSoup(get_html(product_link), 'html5lib')
@@ -445,7 +467,7 @@ def get_prod_descr(product_link):
         text = ''
     description.append(text)
     try:
-        for i in soup.find('div', id ='detailBullets_feature_div').findAll('span', class_ = 'a-list-item'):
+        for i in soup.find('div', id='detailBullets_feature_div').findAll('span', class_='a-list-item'):
             for d in i.findAll('span'):
                 description.append(d.text.split('\n'))
     except:
@@ -461,41 +483,29 @@ def generate_all_pages(url):
     num = get_number_of_pages(url)
     for i in range(1, num + 1):
         base_url = 'https://www.amazon.com/s/ref=sr_pg_' + str(i)
-        query_part1 = '?'+url.split('?')[1].split('bbn=')[0] +'page='+str(i)+'&bbn='
-        query_part2 = '&ie='+url.split('&ie=')[1]
+        query_part1 = '?' + url.split('?')[1].split('bbn=')[0] + 'page=' + str(i) + '&bbn='
+        query_part2 = '&ie=' + url.split('&ie=')[1]
         new_url = base_url + query_part1 + query_part2
         all_pages.append(new_url)
     return all_pages
-def get_product_links_single_page(page_url):
-    links = []
-    soup = BeautifulSoup(get_html(page_url), 'html5lib')
-    for k in soup.findAll('div', class_ = 'a-row a-gesture a-gesture-horizontal'):
-        links.append(k.find('a', class_ = 'a-link-normal a-text-normal').get('href'))
-            
-    with open('1.csv', 'a') as f:
-            writer = csv.writer(f)
-            for item in links:
-                writer.writerow([item])
-    return links
+
 def write_titles():
     with open('amazon_test.csv', 'w') as f:
         writer = csv.writer(f)
         writer.writerow(titles)
         
 def make_all(product_link):
-    #product_links = get_product_links(start_url)
-    product = get_product_info(URL, product_link)
-    variations = get_variations(URL, product_link)
+    # product_links = get_product_links(start_url)
+    product = get_product_info(START_URL, product_link)
     print(product)
     if product != []:
         write_to_csv(product)
-    else:
-        pass
-    for item in variations:
-        if product != []:
-            write_to_csv(item)
-        else:
-            pass
+        variations = get_variations(START_URL, product_link)
+        print(len(variations))
+        for item in variations:
+            print(item)
+            if item != []:
+                write_to_csv(item)
         
             
 def read_product_links():
@@ -508,9 +518,17 @@ def read_product_links():
     return product_links
 
 def main():
+#     urls = list(get_urls_dict().keys())
+#     for i in urls:
+#         get_product_links_multi(i)
+    #get_product_links_multi(START_URL)
     
     write_titles()
-    make_all('https://www.amazon.com/Saucony-Jazz-Sneaker-Toddler-Periwinkle/dp/B00ZXQV2TY/ref=sr_1_1?s=apparel&ie=UTF8&qid=1501876479&sr=8-1&keywords=Saucony+Jazz+Hook+%26+Loop+Sneaker+%28Toddler%2FLittle+Kid%29')
+    with Pool(2) as p:
+        p.map(make_all, read_product_links()[:20])
+
+    #make_all('https://www.amazon.com/Saucony-Jazz-Sneaker-Toddler-Periwinkle/dp/B00ZXQV2TY/ref=sr_1_1?s=apparel&ie=UTF8&qid=1501876479&sr=8-1&keywords=Saucony+Jazz+Hook+%26+Loop+Sneaker+%28Toddler%2FLittle+Kid%29')
+
     
     
 if __name__ == '__main__':

@@ -14,8 +14,8 @@ def get_proxies():
         proxies.append(i.text)
     for k in range(1, int(len(proxies)/8)):
         prx.append(proxies[0::8][k] + ":"+proxies[1::8][k])
-    return prx[:20]
+    return prx[:50]
 
 def get_user_agents():
-    pass
+    return open('useragents.txt').read().split('\n')
 

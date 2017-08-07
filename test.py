@@ -108,7 +108,7 @@ def get_html(start_url, useragent=useragentr, proxy=proxys):
     try:
         r = requests.get(start_url, headers=useragentr, proxies=proxys, timeout=10)
     except (requests.exceptions.Timeout, requests.exceptions.RequestException) as e:
-        pass
+        return None
     return r.text
     
 def get_ip(url):
@@ -144,32 +144,26 @@ def generate_all_pages(url):
         all_pages.append(new_url)
     return all_pages
 
-def get_product_links_all(start_url):
+def get_product_links_multi(start_url):
+    
+    page_links = generate_all_pages(start_url)
+    with Pool(4) as p:
+        p.map(get_product_links_single, page_links)
+def get_product_links_single(page_url):
     links = []
-    for i in generate_all_pages(start_url):
-        for k in range(len(get_product_links_single_page(start_url))):
-            links.append(get_product_links_single_page(start_url)[k])
-    return links
-def get_product_links_single_page(page_url):
-    links = []
-    soup = BeautifulSoup(get_html(page_url), 'html5lib')
-    for k in soup.findAll('div', class_='a-row a-gesture a-gesture-horizontal'):
-        links.append(k.find('a', class_='a-link-normal a-text-normal').get('href'))
-        
-    with open('ggwp.csv', 'a') as f:
-            writer = csv.writer(f)
-            for item in links:
+    with open('1.csv', 'a') as f:
+        writer = csv.writer(f)
+        html = get_html(page_url)
+        if  html != None:
+            soup = BeautifulSoup(html, 'html5lib')
+            for k in soup.findAll('div', class_='a-row a-gesture a-gesture-horizontal'):
+                item = k.find('a', class_='a-link-normal a-text-normal').get('href')
+                links.append(item)
                 writer.writerow([item])
-    return links
-def get_ASIN(product_link):
-    soup = BeautifulSoup(get_html(product_link), 'html.parser')
-    for i in soup.findAll('span', class_='a-text-bold'):
-        if 'ASIN' in i.text.strip():
-            asin = i.find_next_sibling('span').text
-            print(asin)
         else:
-            continue
-    return asin
+            pass
+    return links
+
 def get_product_info(url, product_link):
     data = {'seller': '',
             'feed_product_type':'SHOES',
@@ -288,9 +282,11 @@ def get_product_info(url, product_link):
         name = ''
     
     try:
-        ASIN = get_ASIN(product_link)
+        for i in soup.findAll('span', class_='a-text-bold'):
+            if 'ASIN' in i.text.strip():
+                ASIN = i.find_next_sibling('span').text
     except:
-        ASIN = ''
+        ASIN = 'cant get'
     with open('Restricted-Asins.csv', 'r') as f:
         reader = csv.reader(f)
         restricted_asins = list(reader)
@@ -366,21 +362,11 @@ def get_code(url):
 
     return codes.get(category)
 def main():
-    l = []
-    product_link = 'https://www.amazon.com/Merrell-Crush-Light-Trail-Running/dp/B011O0ICEU'
-    url = 'https://www.amazon.com/s/ref=sr_hi_6?rh=n%3A7141123011%2Cn%3A7147441011%2Cn%3A679255011%2Cn%3A6127770011%2Cn%3A679286011%2Cp_6%3AATVPDKIKX0DER%7CAH1YFAUS3NHX2%7CA38MYE29B8LFRT%7CA2I0YKRFYX9813%7CAG670YE9WDQRF%7CA1LEM297LNF1FK%7CA7QKSDTF5TXF5%7CA7ULJO7NAWM0L%7CA2BMBHD2OU3XDU%7CAU8KF031TC39C%7CA3SNLLVFZ6ABAC%7CA3VX72MEBB21JI%7CAUN61RNUNKNVG%7CA1BNXE6U3W2NOH%7CAM3NWFGAU67D%7CA2WOPAGVJGO3RL%7CA3NWHXTQ4EBCZS%7CA1UG884EF99PVQ%7CA15MDCTZU8FRDU%7CA2XDG44YY9CCCX%7CA5592GM03C9YR%7CA1YT150G3ARUNS%7CAL551XTSRGEN3&bbn=679286011&ie=UTF8&qid=1501746466'
-    soup = BeautifulSoup(get_html('https://www.amazon.com/dp/B0058SDR36/ref=olp_product_details?_encoding=UTF8&me='), 'html5lib')
-    imgs = []
-    for y in soup.findAll('span', class_ = 'a-button-text'):
-                    a = y.find('img')
-                    if a != None:
-                        imgs.append(a['src'])
-                        print(a['src'])
+    l = [1]
+    it = iter(l)
+    print(next(it))
+    print(next(it,'l;'))
         
-        
-#     for i in get_product_links_all(url):
-#         print(i)
-    
         
     
 if __name__ == '__main__':
