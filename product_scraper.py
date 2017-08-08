@@ -12,6 +12,9 @@ from random import choice, uniform
 from time import sleep
 from itertools import product
 from htmlmin.minify import html_minify
+from fake_useragent import UserAgent
+
+ua = UserAgent()
 
 START_URL = 'https://www.amazon.com/s/ref=sr_hi_6?rh=n%3A7141123011%2Cn%3A7147441011%2Cn%3A679255011%2Cn%3A6127770011%2Cn%3A679286011%2Cp_6%3AATVPDKIKX0DER%7CAH1YFAUS3NHX2%7CA38MYE29B8LFRT%7CA2I0YKRFYX9813%7CAG670YE9WDQRF%7CA1LEM297LNF1FK%7CA7QKSDTF5TXF5%7CA7ULJO7NAWM0L%7CA2BMBHD2OU3XDU%7CAU8KF031TC39C%7CA3SNLLVFZ6ABAC%7CA3VX72MEBB21JI%7CAUN61RNUNKNVG%7CA1BNXE6U3W2NOH%7CAM3NWFGAU67D%7CA2WOPAGVJGO3RL%7CA3NWHXTQ4EBCZS%7CA1UG884EF99PVQ%7CA15MDCTZU8FRDU%7CA2XDG44YY9CCCX%7CA5592GM03C9YR%7CA1YT150G3ARUNS%7CAL551XTSRGEN3&bbn=679286011&ie=UTF8&qid=1501746466'
 titles = ['seller',
@@ -113,16 +116,20 @@ cookies = {
     'session-id-time': '2082787201l',
     'session-id': '147-4785820-5626815',
 }
+
+        
 def get_html(start_url):
     useragents = get_user_agents()
     proxies = get_proxies()
     sleep(uniform(6, 10))
+    session_req = requests.session()    
     try:
-        r = requests.get(start_url, headers= {'User-Agent': random.choice(useragents)}, proxies= {'http':'http://' + random.choice(proxies)}, cookies = cookies, timeout=10)
+        r = session_req.get(start_url, headers= {'User-Agent': ua.random}, proxies= {'http':'http://' + random.choice(proxies)}, cookies = cookies, timeout=10)
     except (requests.exceptions.Timeout, requests.exceptions.RequestException) as e:
         return None
     minified_html = html_minify(r.text)    
     return minified_html
+
 def get_urls_dict():
     with open('Amazon_URLS.csv') as infile:
         reader = csv.DictReader(infile)
@@ -310,12 +317,12 @@ def get_product_info(url, product_link):
     else:
         return empty
     
-#     with open('Restricted-Keywords.csv', 'r') as f:
-#         restricted_kw = []
-#         reader = csv.reader(f)
-#         l = list(reader)
-#         for row in l:
-#             restricted_kw.append(row[0]) 
+    with open('Restricted-Keywords.csv', 'r') as f:
+        restricted_kw = []
+        reader = csv.reader(f)
+        l = list(reader)
+        for row in l:
+            restricted_kw.append(row[0]) 
                 
     bullets = []
     try:
@@ -327,13 +334,13 @@ def get_product_info(url, product_link):
     except: desc = ' '  
     
     
-#     for rkw in restricted_kw:
-#         if rkw.lower() in name.lower() or rkw.lower() in desc.lower():
-#             return empty
-#         else:
-#             for i in bullets:
-#                 if rkw.lower() in bullet[i]:
-#                     return empty
+    for rkw in restricted_kw:
+        if rkw.lower() in name.lower() or rkw.lower() in desc.lower():
+            return empty
+        else:
+            for i in bullets:
+                if rkw.lower() in i.lower():
+                    return empty
     imgs = []
     for i in soup.findAll('span', class_='a-button-text'):
         a = i.find('img')
@@ -382,13 +389,14 @@ def get_variations(url, product_link):
                 break
     except:
         return variations
-
+    
     var_page = 'https://www.amazon.com/gp/offer-listing/' + ASIN + '?ie=UTF8&condition=new'
+    
     soup = BeautifulSoup(get_html(var_page), 'html5lib')
-    print(soup)
+    #print(soup)
     for i in soup.findAll('a', class_='a-link-normal', attrs={'href': re.compile('/gp/offer-listing/')}):
         var_links.append('https://www.amazon.com' + i.get('href'))
-    
+        
     sellers = []
     for k in soup.findAll("h3", class_='a-spacing-none olpSellerName'):
         try:
@@ -401,11 +409,6 @@ def get_variations(url, product_link):
     
     for i in range(0, len(sellers)):
         product = get_product_info(url, product_link) 
-        if product == None:
-            try:
-                product = get_product_info(url, product_link)
-            except:
-                continue
             
         soup2 = BeautifulSoup(get_html(var_links[i]), 'html5lib')
         new_ASIN = var_links[i].split('offer-listing/')[1].split('/')[0]    
@@ -437,7 +440,7 @@ def get_variations(url, product_link):
             reader = csv.reader(f)
             accepted_sellers = list(reader)
             list_as = ''.join(str(x) for x in accepted_sellers)
-        if sellers[i] in list_as:    
+        if sellers[i] in list_as and product != [] and product != None:    
             product[0] = sellers[i]
             product[2] = 'LYS'+new_ASIN+'-'+get_code(url)
             product[3] = new_ASIN
@@ -501,7 +504,6 @@ def make_all(product_link):
     if product != []:
         write_to_csv(product)
         variations = get_variations(START_URL, product_link)
-        print(len(variations))
         for item in variations:
             print(item)
             if item != []:
@@ -524,8 +526,8 @@ def main():
     #get_product_links_multi(START_URL)
     
     write_titles()
-    with Pool(2) as p:
-        p.map(make_all, read_product_links()[:20])
+    with Pool(6) as p:
+        p.map(make_all, read_product_links()[:500])
 
     #make_all('https://www.amazon.com/Saucony-Jazz-Sneaker-Toddler-Periwinkle/dp/B00ZXQV2TY/ref=sr_1_1?s=apparel&ie=UTF8&qid=1501876479&sr=8-1&keywords=Saucony+Jazz+Hook+%26+Loop+Sneaker+%28Toddler%2FLittle+Kid%29')
 

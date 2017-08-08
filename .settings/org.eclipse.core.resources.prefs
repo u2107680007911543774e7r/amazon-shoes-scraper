@@ -1,4 +1,6 @@
 eclipse.preferences.version=1
 encoding/product_scraper.py=utf-8
 encoding/proxies_scraper.py=utf-8
+encoding/reviews_scraper.py=utf-8
+encoding/selenium_scraper.py=utf-8
 encoding/test.py=utf-8
